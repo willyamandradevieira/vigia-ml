@@ -26,36 +26,6 @@ async function getToken() {
   return accessToken;
 }
 
-async function getSellerByNickname(nickname) {
-  const token = await getToken();
-
-  // Tenta buscar seller via search de produtos com nickname exato
-  const res = await fetch(
-    `https://api.mercadolibre.com/sites/MLB/search?nickname=${encodeURIComponent(nickname)}&limit=1`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  const data = await res.json();
-  console.log('Search response:', JSON.stringify(data).substring(0, 300));
-
-  if (data.seller && data.seller.id) return data.seller.id;
-  if (data.results && data.results.length > 0 && data.results[0].seller) {
-    return data.results[0].seller.id;
-  }
-
-  // Tenta buscar diretamente pelo endpoint de usuários por nickname
-  const res2 = await fetch(
-    `https://api.mercadolibre.com/sites/MLB/search?seller_nickname=${encodeURIComponent(nickname)}&limit=1`,
-    { headers: { Authorization: `Bearer ${token}` } }
-  );
-  const data2 = await res2.json();
-  console.log('Search2 response:', JSON.stringify(data2).substring(0, 300));
-  if (data2.results && data2.results.length > 0 && data2.results[0].seller) {
-    return data2.results[0].seller.id;
-  }
-
-  throw new Error(`Vendedor "${nickname}" não encontrado. Tente o link direto da loja.`);
-}
-
 async function getSellerProducts(sellerId) {
   const token = await getToken();
   let allItems = [];
@@ -87,45 +57,10 @@ async function getSellerProducts(sellerId) {
   return allItems;
 }
 
-function extractNickname(url) {
-  const match = url.match(/mercadolivre\.com\.br\/(?:loja\/)?([^\/\?#]+)/i);
-  if (match) return match[1].toUpperCase();
-  throw new Error('URL inválida.');
-}
-
 app.get('/', (req, res) => {
-  res.json({ status: 'VigIA online', versao: '1.2' });
+  res.json({ status: 'VigIA online', versao: '1.3' });
 });
 
-// Busca por seller_id direto
-app.post('/escanear-loja', async (req, res) => {
-  try {
-    const { url_loja, seller_id } = req.body;
-
-    let sellerId = seller_id;
-
-    if (!sellerId) {
-      if (!url_loja) return res.status(400).json({ erro: 'Informe url_loja ou seller_id' });
-      const nickname = extractNickname(url_loja);
-      console.log(`Buscando: ${nickname}`);
-      sellerId = await getSellerByNickname(nickname);
-    }
-
-    console.log(`Seller ID: ${sellerId}`);
-    const produtos = await getSellerProducts(sellerId);
-
-    res.json({
-      vendedor_id: sellerId,
-      total_produtos: produtos.length,
-      produtos,
-    });
-  } catch (err) {
-    console.error(err.message);
-    res.status(500).json({ erro: err.message });
-  }
-});
-
-// Teste de token
 app.get('/token-test', async (req, res) => {
   try {
     const token = await getToken();
@@ -135,5 +70,49 @@ app.get('/token-test', async (req, res) => {
   }
 });
 
+// Busca seller_id pelo nickname via pesquisa de produtos
+app.get('/buscar-vendedor', async (req, res) => {
+  try {
+    const { nickname } = req.query;
+    if (!nickname) return res.status(400).json({ erro: 'Informe ?nickname=...' });
+    const token = await getToken();
+
+    const r = await fetch(
+      `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(nickname)}&limit=10`,
+      { headers: { Authorization: `Bearer ${token}` } }
+    );
+    const d = await r.json();
+    const sellers = (d.results || [])
+      .map(i => ({ seller_id: i.seller?.id, seller_nickname: i.seller?.nickname }))
+      .filter(s => s.seller_id);
+
+    // Remove duplicados
+    const unique = [...new Map(sellers.map(s => [s.seller_id, s])).values()];
+    res.json({ resultados: unique });
+  } catch (err) {
+    res.status(500).json({ erro: err.message });
+  }
+});
+
+// Escaneia todos os produtos de um vendedor pelo seller_id
+app.post('/escanear-loja', async (req, res) => {
+  try {
+    const { seller_id } = req.body;
+    if (!seller_id) return res.status(400).json({ erro: 'Informe o seller_id' });
+
+    console.log(`Escaneando seller_id: ${seller_id}`);
+    const produtos = await getSellerProducts(seller_id);
+
+    res.json({
+      vendedor_id: seller_id,
+      total_produtos: produtos.length,
+      produtos,
+    });
+  } catch (err) {
+    console.error(err.message);
+    res.status(500).json({ erro: err.message });
+  }
+});
+
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`VigIA v1.2 rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(`VigIA v1.3 rodando na porta ${PORT}`));
