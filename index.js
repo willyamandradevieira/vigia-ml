@@ -38,6 +38,7 @@ async function getSellerProducts(sellerId) {
       { headers: { Authorization: `Bearer ${token}` } }
     );
     const data = await res.json();
+    console.log(`Search seller ${sellerId} offset ${offset}:`, JSON.stringify(data).substring(0, 200));
     const items = data.results || [];
     allItems = allItems.concat(items.map(item => ({
       id: item.id,
@@ -58,7 +59,7 @@ async function getSellerProducts(sellerId) {
 }
 
 app.get('/', (req, res) => {
-  res.json({ status: 'VigIA online', versao: '1.3' });
+  res.json({ status: 'VigIA online', versao: '1.4' });
 });
 
 app.get('/token-test', async (req, res) => {
@@ -70,44 +71,33 @@ app.get('/token-test', async (req, res) => {
   }
 });
 
-// Busca seller_id pelo nickname via pesquisa de produtos
-app.get('/buscar-vendedor', async (req, res) => {
+// Busca seller_id a partir do ID de um produto (ex: MLB55254425)
+app.get('/item/:itemId', async (req, res) => {
   try {
-    const { nickname } = req.query;
-    if (!nickname) return res.status(400).json({ erro: 'Informe ?nickname=...' });
     const token = await getToken();
-
-    const r = await fetch(
-      `https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(nickname)}&limit=10`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    const { itemId } = req.params;
+    const r = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
+      headers: { Authorization: `Bearer ${token}` }
+    });
     const d = await r.json();
-    const sellers = (d.results || [])
-      .map(i => ({ seller_id: i.seller?.id, seller_nickname: i.seller?.nickname }))
-      .filter(s => s.seller_id);
-
-    // Remove duplicados
-    const unique = [...new Map(sellers.map(s => [s.seller_id, s])).values()];
-    res.json({ resultados: unique });
+    console.log('Item response:', JSON.stringify(d).substring(0, 300));
+    if (d.seller_id) {
+      res.json({ item_id: itemId, seller_id: d.seller_id, titulo: d.title, preco: d.price });
+    } else {
+      res.status(404).json({ erro: 'Item não encontrado', detalhe: d });
+    }
   } catch (err) {
     res.status(500).json({ erro: err.message });
   }
 });
 
-// Escaneia todos os produtos de um vendedor pelo seller_id
 app.post('/escanear-loja', async (req, res) => {
   try {
     const { seller_id } = req.body;
     if (!seller_id) return res.status(400).json({ erro: 'Informe o seller_id' });
-
     console.log(`Escaneando seller_id: ${seller_id}`);
     const produtos = await getSellerProducts(seller_id);
-
-    res.json({
-      vendedor_id: seller_id,
-      total_produtos: produtos.length,
-      produtos,
-    });
+    res.json({ vendedor_id: seller_id, total_produtos: produtos.length, produtos });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ erro: err.message });
@@ -115,4 +105,4 @@ app.post('/escanear-loja', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`VigIA v1.3 rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(`VigIA v1.4 rodando na porta ${PORT}`));
