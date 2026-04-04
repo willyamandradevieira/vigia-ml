@@ -20,31 +20,40 @@ async function getToken() {
     }),
   });
   const data = await res.json();
+  if (!data.access_token) throw new Error('Falha ao obter token: ' + JSON.stringify(data));
   accessToken = data.access_token;
   tokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
   return accessToken;
 }
 
-async function getSellerIdFromNickname(nickname) {
+async function getSellerByNickname(nickname) {
   const token = await getToken();
-  // Busca pelo nickname via endpoint de usuários
-  const res = await fetch(`https://api.mercadolibre.com/users/search?nickname=${encodeURIComponent(nickname)}`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  const data = await res.json();
-  if (data.results && data.results.length > 0) return data.results[0].id;
 
-  // Fallback: busca por search de itens e pega o seller_id
-  const res2 = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(nickname)}&limit=1`, {
-    headers: { Authorization: `Bearer ${token}` }
-  });
-  const data2 = await res2.json();
-  if (data2.results && data2.results.length > 0) {
-    const sellerId = data2.results[0].seller.id;
-    // Confirma se o nickname bate
-    return sellerId;
+  // Tenta buscar seller via search de produtos com nickname exato
+  const res = await fetch(
+    `https://api.mercadolibre.com/sites/MLB/search?nickname=${encodeURIComponent(nickname)}&limit=1`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const data = await res.json();
+  console.log('Search response:', JSON.stringify(data).substring(0, 300));
+
+  if (data.seller && data.seller.id) return data.seller.id;
+  if (data.results && data.results.length > 0 && data.results[0].seller) {
+    return data.results[0].seller.id;
   }
-  throw new Error('Vendedor não encontrado. Verifique o link da loja.');
+
+  // Tenta buscar diretamente pelo endpoint de usuários por nickname
+  const res2 = await fetch(
+    `https://api.mercadolibre.com/sites/MLB/search?seller_nickname=${encodeURIComponent(nickname)}&limit=1`,
+    { headers: { Authorization: `Bearer ${token}` } }
+  );
+  const data2 = await res2.json();
+  console.log('Search2 response:', JSON.stringify(data2).substring(0, 300));
+  if (data2.results && data2.results.length > 0 && data2.results[0].seller) {
+    return data2.results[0].seller.id;
+  }
+
+  throw new Error(`Vendedor "${nickname}" não encontrado. Tente o link direto da loja.`);
 }
 
 async function getSellerProducts(sellerId) {
@@ -80,36 +89,51 @@ async function getSellerProducts(sellerId) {
 
 function extractNickname(url) {
   const match = url.match(/mercadolivre\.com\.br\/(?:loja\/)?([^\/\?#]+)/i);
-  if (match) return match[1];
-  throw new Error('URL inválida. Use o link da loja: mercadolivre.com.br/loja/nomedavendedor');
+  if (match) return match[1].toUpperCase();
+  throw new Error('URL inválida.');
 }
 
 app.get('/', (req, res) => {
-  res.json({ status: 'VigIA online', versao: '1.1' });
+  res.json({ status: 'VigIA online', versao: '1.2' });
 });
 
+// Busca por seller_id direto
 app.post('/escanear-loja', async (req, res) => {
   try {
-    const { url_loja } = req.body;
-    if (!url_loja) return res.status(400).json({ erro: 'Informe a url_loja no body' });
+    const { url_loja, seller_id } = req.body;
 
-    const nickname = extractNickname(url_loja);
-    console.log(`Buscando vendedor: ${nickname}`);
-    const sellerId = await getSellerIdFromNickname(nickname);
-    console.log(`Seller ID encontrado: ${sellerId}`);
+    let sellerId = seller_id;
+
+    if (!sellerId) {
+      if (!url_loja) return res.status(400).json({ erro: 'Informe url_loja ou seller_id' });
+      const nickname = extractNickname(url_loja);
+      console.log(`Buscando: ${nickname}`);
+      sellerId = await getSellerByNickname(nickname);
+    }
+
+    console.log(`Seller ID: ${sellerId}`);
     const produtos = await getSellerProducts(sellerId);
 
     res.json({
       vendedor_id: sellerId,
-      nickname,
       total_produtos: produtos.length,
       produtos,
     });
   } catch (err) {
-    console.error(err);
+    console.error(err.message);
+    res.status(500).json({ erro: err.message });
+  }
+});
+
+// Teste de token
+app.get('/token-test', async (req, res) => {
+  try {
+    const token = await getToken();
+    res.json({ ok: true, token_preview: token.substring(0, 20) + '...' });
+  } catch (err) {
     res.status(500).json({ erro: err.message });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`VigIA v1.1 rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(`VigIA v1.2 rodando na porta ${PORT}`));
