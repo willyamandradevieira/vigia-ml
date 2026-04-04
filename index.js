@@ -27,12 +27,24 @@ async function getToken() {
 
 async function getSellerIdFromNickname(nickname) {
   const token = await getToken();
-  const res = await fetch(`https://api.mercadolibre.com/sites/MLB/search?nickname=${nickname}&limit=1`, {
+  // Busca pelo nickname via endpoint de usuários
+  const res = await fetch(`https://api.mercadolibre.com/users/search?nickname=${encodeURIComponent(nickname)}`, {
     headers: { Authorization: `Bearer ${token}` }
   });
   const data = await res.json();
-  if (data.seller) return data.seller.id;
-  throw new Error('Vendedor não encontrado');
+  if (data.results && data.results.length > 0) return data.results[0].id;
+
+  // Fallback: busca por search de itens e pega o seller_id
+  const res2 = await fetch(`https://api.mercadolibre.com/sites/MLB/search?q=${encodeURIComponent(nickname)}&limit=1`, {
+    headers: { Authorization: `Bearer ${token}` }
+  });
+  const data2 = await res2.json();
+  if (data2.results && data2.results.length > 0) {
+    const sellerId = data2.results[0].seller.id;
+    // Confirma se o nickname bate
+    return sellerId;
+  }
+  throw new Error('Vendedor não encontrado. Verifique o link da loja.');
 }
 
 async function getSellerProducts(sellerId) {
@@ -61,20 +73,19 @@ async function getSellerProducts(sellerId) {
     })));
     if (items.length < limit) break;
     offset += limit;
-    if (offset >= 200) break; // limite inicial de 200 produtos
+    if (offset >= 200) break;
   }
   return allItems;
 }
 
 function extractNickname(url) {
-  // Suporta: mercadolivre.com.br/loja/NICKNAME ou lista.mercadolivre.com.br/NICKNAME
-  const match = url.match(/mercadolivre\.com\.br\/(?:loja\/)?([^\/\?]+)/i);
-  if (match) return match[1].toUpperCase();
-  throw new Error('URL inválida. Use o link da loja do vendedor no Mercado Livre.');
+  const match = url.match(/mercadolivre\.com\.br\/(?:loja\/)?([^\/\?#]+)/i);
+  if (match) return match[1];
+  throw new Error('URL inválida. Use o link da loja: mercadolivre.com.br/loja/nomedavendedor');
 }
 
 app.get('/', (req, res) => {
-  res.json({ status: 'VigIA online', versao: '1.0' });
+  res.json({ status: 'VigIA online', versao: '1.1' });
 });
 
 app.post('/escanear-loja', async (req, res) => {
@@ -83,7 +94,9 @@ app.post('/escanear-loja', async (req, res) => {
     if (!url_loja) return res.status(400).json({ erro: 'Informe a url_loja no body' });
 
     const nickname = extractNickname(url_loja);
+    console.log(`Buscando vendedor: ${nickname}`);
     const sellerId = await getSellerIdFromNickname(nickname);
+    console.log(`Seller ID encontrado: ${sellerId}`);
     const produtos = await getSellerProducts(sellerId);
 
     res.json({
@@ -93,9 +106,10 @@ app.post('/escanear-loja', async (req, res) => {
       produtos,
     });
   } catch (err) {
+    console.error(err);
     res.status(500).json({ erro: err.message });
   }
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`VigIA rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(`VigIA v1.1 rodando na porta ${PORT}`));
