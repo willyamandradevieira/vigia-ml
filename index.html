@@ -1,0 +1,112 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VigIA — Monitor Inteligente de Concorrentes</title>
+<link href="https://fonts.googleapis.com/css2?family=Syne:wght@400;600;700;800&family=DM+Sans:wght@300;400;500&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#080C14;--surface:#0D1525;--surface2:#111C30;--border:#1E3050;--accent:#0EA5E9;--accent2:#38BDF8;--text:#E8F0FE;--muted:#6B8CAE;--success:#10B981;--warning:#F59E0B;--danger:#EF4444}
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:var(--bg);color:var(--text);font-family:'DM Sans',sans-serif;min-height:100vh;overflow-x:hidden}
+body::before{content:'';position:fixed;inset:0;background-image:linear-gradient(rgba(14,165,233,0.04) 1px,transparent 1px),linear-gradient(90deg,rgba(14,165,233,0.04) 1px,transparent 1px);background-size:40px 40px;pointer-events:none;z-index:0}
+body::after{content:'';position:fixed;top:-200px;left:50%;transform:translateX(-50%);width:600px;height:600px;background:radial-gradient(circle,rgba(14,165,233,0.12) 0%,transparent 70%);pointer-events:none;z-index:0}
+nav{position:relative;z-index:10;display:flex;align-items:center;justify-content:space-between;padding:20px 48px;border-bottom:1px solid var(--border);background:rgba(8,12,20,0.8);backdrop-filter:blur(12px)}
+.logo{font-family:'Syne',sans-serif;font-size:22px;font-weight:800;letter-spacing:-0.5px}
+.logo span{color:var(--accent)}
+.badge{font-size:11px;background:rgba(14,165,233,0.15);border:1px solid rgba(14,165,233,0.3);color:var(--accent2);padding:4px 10px;border-radius:20px;letter-spacing:0.5px}
+main{position:relative;z-index:1;max-width:900px;margin:0 auto;padding:60px 24px}
+.hero{text-align:center;margin-bottom:56px;animation:fadeUp 0.6s ease both}
+.hero-tag{display:inline-flex;align-items:center;gap:6px;font-size:12px;color:var(--accent);border:1px solid rgba(14,165,233,0.3);background:rgba(14,165,233,0.08);padding:5px 14px;border-radius:20px;margin-bottom:24px;letter-spacing:1px;text-transform:uppercase}
+.hero h1{font-family:'Syne',sans-serif;font-size:clamp(32px,5vw,52px);font-weight:800;line-height:1.1;letter-spacing:-1px;margin-bottom:16px}
+.hero h1 span{color:var(--accent)}
+.hero p{color:var(--muted);font-size:17px;font-weight:300;max-width:480px;margin:0 auto;line-height:1.6}
+.search-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:32px;margin-bottom:48px;animation:fadeUp 0.6s 0.1s ease both}
+.search-label{font-size:13px;color:var(--muted);margin-bottom:12px;letter-spacing:0.5px;text-transform:uppercase}
+.search-row{display:flex;gap:12px}
+.search-input{flex:1;background:var(--surface2);border:1px solid var(--border);border-radius:10px;padding:14px 18px;color:var(--text);font-family:'DM Sans',sans-serif;font-size:15px;outline:none;transition:border-color 0.2s}
+.search-input::placeholder{color:var(--muted)}
+.search-input:focus{border-color:var(--accent)}
+.btn-scan{background:var(--accent);color:#fff;border:none;border-radius:10px;padding:14px 28px;font-family:'Syne',sans-serif;font-size:14px;font-weight:700;cursor:pointer;white-space:nowrap;transition:all 0.2s;letter-spacing:0.3px}
+.btn-scan:hover{background:var(--accent2);transform:translateY(-1px)}
+.btn-scan:disabled{opacity:0.5;cursor:not-allowed;transform:none}
+.search-hint{margin-top:10px;font-size:12px;color:var(--muted)}
+.loading{display:none;text-align:center;padding:48px}
+.loading.show{display:block}
+.spinner{width:40px;height:40px;border:2px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;margin:0 auto 16px}
+.loading p{color:var(--muted);font-size:14px}
+.results{display:none}
+.results.show{display:block;animation:fadeUp 0.5s ease both}
+.store-header{background:var(--surface);border:1px solid var(--border);border-radius:16px;padding:28px 32px;margin-bottom:24px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:16px}
+.store-name{font-family:'Syne',sans-serif;font-size:22px;font-weight:700}
+.store-name span{color:var(--accent)}
+.stats-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:16px;margin-bottom:24px}
+.stat-card{background:var(--surface);border:1px solid var(--border);border-radius:12px;padding:20px 24px;transition:border-color 0.2s}
+.stat-card:hover{border-color:var(--accent)}
+.stat-label{font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:8px}
+.stat-value{font-family:'Syne',sans-serif;font-size:26px;font-weight:700}
+.stat-value.green{color:var(--success)}
+.stat-value.blue{color:var(--accent)}
+.stat-value.yellow{color:var(--warning)}
+.section-title{font-family:'Syne',sans-serif;font-size:16px;font-weight:700;margin-bottom:16px;color:var(--text);display:flex;align-items:center;gap:8px}
+.section-title::after{content:'';flex:1;height:1px;background:var(--border)}
+.products-card{background:var(--surface);border:1px solid var(--border);border-radius:16px;overflow:hidden;margin-bottom:24px}
+.products-table{width:100%;border-collapse:collapse}
+.products-table th{background:var(--surface2);padding:12px 20px;text-align:left;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;font-weight:500}
+.products-table td{padding:14px 20px;border-top:1px solid var(--border);font-size:14px;vertical-align:middle}
+.products-table tr:hover td{background:rgba(14,165,233,0.04)}
+.product-title{max-width:320px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;color:var(--text)}
+.product-title a{color:inherit;text-decoration:none}
+.product-title a:hover{color:var(--accent)}
+.price-tag{font-family:'Syne',sans-serif;font-weight:600;color:var(--success);white-space:nowrap}
+.sold-badge{display:inline-block;background:rgba(14,165,233,0.1);color:var(--accent2);border-radius:6px;padding:2px 8px;font-size:12px}
+.insight-card{background:linear-gradient(135deg,rgba(14,165,233,0.08),rgba(56,189,248,0.04));border:1px solid rgba(14,165,233,0.25);border-radius:16px;padding:24px 28px;margin-bottom:24px}
+.insight-header{display:flex;align-items:center;gap:10px;margin-bottom:14px}
+.insight-icon{width:32px;height:32px;background:rgba(14,165,233,0.15);border-radius:8px;display:flex;align-items:center;justify-content:center;font-size:16px}
+.insight-title{font-family:'Syne',sans-serif;font-weight:700;font-size:14px;color:var(--accent2)}
+.insight-text{color:var(--text);font-size:14px;line-height:1.7;list-style:none}
+.insight-text li{margin-bottom:6px;padding-left:4px}
+.insight-text li::before{content:'→ ';color:var(--accent)}
+.error-box{display:none;background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.3);border-radius:12px;padding:16px 20px;color:#FCA5A5;font-size:14px;margin-bottom:16px}
+.error-box.show{display:block}
+@keyframes fadeUp{from{opacity:0;transform:translateY(16px)}to{opacity:1;transform:translateY(0)}}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<nav>
+  <div class="logo">Vig<span>IA</span></div>
+  <div class="badge">BETA</div>
+</nav>
+<main>
+  <div class="hero">
+    <div class="hero-tag">🤖 Inteligência Artificial</div>
+    <h1>Monitore seus<br><span>concorrentes</span> no ML</h1>
+    <p>Cole o link de qualquer loja e receba uma análise completa com preços, produtos e insights da IA.</p>
+  </div>
+  <div class="search-card">
+    <div class="search-label">Link da loja do Mercado Livre</div>
+    <div class="search-row">
+      <input type="text" class="search-input" id="lojaInput" placeholder="https://www.mercadolivre.com.br/loja/samsung"/>
+      <button class="btn-scan" id="btnScan" onclick="escanear()">Analisar →</button>
+    </div>
+    <div class="search-hint">Funciona com qualquer loja pública do Mercado Livre</div>
+  </div>
+  <div class="error-box" id="errorBox"></div>
+  <div class="loading" id="loading">
+    <div class="spinner"></div>
+    <p>Escaneando loja e analisando produtos...</p>
+  </div>
+  <div class="results" id="results"></div>
+</main>
+<script>
+const API='https://vigia-ml-production.up.railway.app';
+function fmt(p){if(!p)return'—';return'R$ '+p.toLocaleString('pt-BR',{minimumFractionDigits:2})}
+function stats(produtos){const v=produtos.filter(p=>p.preco);if(!v.length)return{};const pr=v.map(p=>p.preco);return{avg:pr.reduce((a,b)=>a+b,0)/pr.length,min:Math.min(...pr),max:Math.max(...pr),total:produtos.length}}
+function insights(produtos,nick){const s=stats(produtos);const r=[];if(s.total)r.push('A loja <strong>'+nick+'</strong> possui <strong>'+s.total+' produtos</strong> listados.');if(s.avg)r.push('Preço médio: <strong>'+fmt(s.avg)+'</strong>');if(s.min&&s.max)r.push('Faixa de preços: de <strong>'+fmt(s.min)+'</strong> até <strong>'+fmt(s.max)+'</strong>');const caros=produtos.filter(p=>p.preco&&p.preco>s.avg*1.5);if(caros.length)r.push('<strong>'+caros.length+' produtos</strong> acima de 50% da média — oportunidade de competir nessa faixa.');r.push('Análise de concorrentes disponível em breve.');return r}
+function render(data){const{nickname,produtos}=data;const s=stats(produtos);const ins=insights(produtos,nickname);const rows=produtos.slice(0,30).map(p=>'<tr><td class="product-title">'+(p.link?'<a href="'+p.link+'" target="_blank">'+p.titulo+'</a>':p.titulo)+'</td><td><span class="price-tag">'+fmt(p.preco)+'</span></td><td><span class="sold-badge">'+(p.total_vendas||'—')+'</span></td></tr>').join('');document.getElementById('results').innerHTML='<div class="store-header"><div><div style="font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Loja analisada</div><div class="store-name">Loja <span>'+nickname.toUpperCase()+'</span></div></div><div class="badge">✓ Análise completa</div></div><div class="stats-grid"><div class="stat-card"><div class="stat-label">Total de produtos</div><div class="stat-value blue">'+(s.total||0)+'</div></div><div class="stat-card"><div class="stat-label">Preço médio</div><div class="stat-value green">'+fmt(s.avg)+'</div></div><div class="stat-card"><div class="stat-label">Menor preço</div><div class="stat-value">'+fmt(s.min)+'</div></div><div class="stat-card"><div class="stat-label">Maior preço</div><div class="stat-value yellow">'+fmt(s.max)+'</div></div></div><div class="insight-card"><div class="insight-header"><div class="insight-icon">🤖</div><div class="insight-title">Análise da IA</div></div><ul class="insight-text">'+ins.map(i=>'<li>'+i+'</li>').join('')+'</ul></div><div class="section-title">Produtos encontrados</div><div class="products-card"><table class="products-table"><thead><tr><th>Produto</th><th>Preço</th><th>Vendas</th></tr></thead><tbody>'+rows+'</tbody></table></div>'}
+async function escanear(){const input=document.getElementById('lojaInput').value.trim();if(!input)return;const nickname=input.includes('mercadolivre')?input.match(/mercadolivre\.com\.br\/(?:loja\/)?([^\/\?#]+)/i)?.[1]||input:input;document.getElementById('errorBox').classList.remove('show');document.getElementById('results').classList.remove('show');document.getElementById('loading').classList.add('show');document.getElementById('btnScan').disabled=true;try{const res=await fetch(API+'/escanear-loja',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({nickname})});const data=await res.json();if(data.erro)throw new Error(data.erro);if(!data.produtos||!data.produtos.length)throw new Error('Nenhum produto encontrado. Verifique o link da loja.');render(data);document.getElementById('results').classList.add('show')}catch(err){document.getElementById('errorBox').textContent='⚠ '+err.message;document.getElementById('errorBox').classList.add('show')}finally{document.getElementById('loading').classList.remove('show');document.getElementById('btnScan').disabled=false}}
+document.getElementById('lojaInput').addEventListener('keydown',e=>{if(e.key==='Enter')escanear()});
+</script>
+</body>
+</html>
