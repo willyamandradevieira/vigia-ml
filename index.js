@@ -6,15 +6,16 @@ app.use(express.static(path.join(__dirname, 'public')));
 
 async function getProdutosDaLoja(nickname) {
   const produtos = [];
-  const paginas = 3; // busca até 3 páginas = ~144 produtos
+  let totalReal = null;
+  const maxPaginas = 9; // até 9 páginas = ~432 produtos (cobre os 429 da Samsung)
 
-  for (let pagina = 1; pagina <= paginas; pagina++) {
+  for (let pagina = 1; pagina <= maxPaginas; pagina++) {
     const offset = (pagina - 1) * 48;
     const url = offset === 0
       ? `https://lista.mercadolivre.com.br/loja/${nickname}/`
       : `https://lista.mercadolivre.com.br/loja/${nickname}/_Desde_${offset + 1}`;
 
-    console.log(`Buscando página ${pagina}: ${url}`);
+    console.log(`Página ${pagina}: ${url}`);
 
     const res = await fetch(url, {
       headers: {
@@ -25,31 +26,32 @@ async function getProdutosDaLoja(nickname) {
     });
 
     const html = await res.text();
-    console.log(`Página ${pagina}: status ${res.status}, ${html.length} chars`);
 
-    // Extrai títulos dos produtos
+    // Pega o total real de produtos na primeira página
+    if (pagina === 1) {
+      const totalMatch = html.match(/(\d+)\s*resultados?/i);
+      if (totalMatch) totalReal = parseInt(totalMatch[1]);
+      console.log(`Total real de produtos: ${totalReal}`);
+    }
+
     const titulos = [...html.matchAll(/class="poly-component__title[^"]*"[^>]*>([^<]{10,150})<\/a>/g)]
       .map(m => m[1].trim());
 
-    // Extrai preços — pega o valor principal (reais)
     const precos = [...html.matchAll(/class="andes-money-amount__fraction"[^>]*>([^<]+)<\/span>/g)]
       .map(m => parseFloat(m[1].replace(/\./g, '')))
       .filter(p => !isNaN(p) && p > 0);
 
-    // Extrai links dos produtos
     const links = [...html.matchAll(/href="(https:\/\/www\.mercadolivre\.com\.br\/[^"]+)"/g)]
       .map(m => m[1])
       .filter(l => l.includes('MLB') && !l.includes('classifieds') && !l.includes('loja'));
 
-    // Extrai avaliações
     const avaliacoes = [...html.matchAll(/class="poly-reviews__rating"[^>]*>([^<]+)<\/span>/g)]
       .map(m => parseFloat(m[1].trim()));
 
-    // Extrai quantidade de vendas
     const vendas = [...html.matchAll(/class="poly-component__sold"[^>]*>([^<]+)<\/span>/g)]
       .map(m => m[1].trim());
 
-    console.log(`Página ${pagina}: ${titulos.length} títulos, ${precos.length} preços, ${links.length} links`);
+    console.log(`Página ${pagina}: ${titulos.length} títulos, ${precos.length} preços`);
 
     const qtd = Math.max(titulos.length, links.length);
     for (let i = 0; i < qtd; i++) {
@@ -63,15 +65,18 @@ async function getProdutosDaLoja(nickname) {
       });
     }
 
-    // Se veio menos de 40 produtos nessa página, não tem mais
-    if (titulos.length < 20) break;
+    // Para quando não tem mais produtos
+    if (titulos.length < 10) break;
+    
+    // Para quando já buscou todos
+    if (totalReal && produtos.length >= totalReal) break;
   }
 
-  return produtos;
+  return { produtos, totalReal };
 }
 
 app.get('/api/status', (req, res) => {
-  res.json({ status: 'VigIA online', versao: '3.0' });
+  res.json({ status: 'VigIA online', versao: '3.1' });
 });
 
 app.get('/', (req, res) => {
@@ -90,13 +95,18 @@ app.post('/escanear-loja', async (req, res) => {
 
     nick = nick.toLowerCase().replace(/[^a-z0-9_-]/g, '');
     console.log(`Escaneando: ${nick}`);
-    const produtos = await getProdutosDaLoja(nick);
+    const { produtos, totalReal } = await getProdutosDaLoja(nick);
 
     if (produtos.length === 0) {
       return res.status(404).json({ erro: 'Nenhum produto encontrado. Verifique o nome da loja.' });
     }
 
-    res.json({ nickname: nick, total_produtos: produtos.length, produtos });
+    res.json({ 
+      nickname: nick, 
+      total_produtos: produtos.length,
+      total_real: totalReal,
+      produtos 
+    });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ erro: err.message });
@@ -104,4 +114,4 @@ app.post('/escanear-loja', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`VigIA v3.0 na porta ${PORT}`));
+app.listen(PORT, () => console.log(`VigIA v3.1 na porta ${PORT}`));
