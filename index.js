@@ -2,102 +2,88 @@ const express = require('express');
 const app = express();
 app.use(express.json());
 
-const CLIENT_ID = process.env.ML_CLIENT_ID;
-const CLIENT_SECRET = process.env.ML_CLIENT_SECRET;
-
-let accessToken = null;
-let tokenExpiry = 0;
-
-async function getToken() {
-  if (accessToken && Date.now() < tokenExpiry) return accessToken;
-  const res = await fetch('https://api.mercadolibre.com/oauth/token', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({
-      grant_type: 'client_credentials',
-      client_id: CLIENT_ID,
-      client_secret: CLIENT_SECRET,
-    }),
+async function getProdutosDaLoja(nickname) {
+  // Busca a página pública da loja no ML
+  const url = `https://www.mercadolivre.com.br/loja/${nickname}/mais-vendidos`;
+  const res = await fetch(url, {
+    headers: {
+      'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
+      'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+      'Accept-Language': 'pt-BR,pt;q=0.9',
+    }
   });
-  const data = await res.json();
-  if (!data.access_token) throw new Error('Falha ao obter token: ' + JSON.stringify(data));
-  accessToken = data.access_token;
-  tokenExpiry = Date.now() + (data.expires_in - 60) * 1000;
-  return accessToken;
-}
-
-async function getSellerProducts(sellerId) {
-  const token = await getToken();
-  let allItems = [];
-  let offset = 0;
-  const limit = 50;
-
-  while (true) {
-    const res = await fetch(
-      `https://api.mercadolibre.com/sites/MLB/search?seller_id=${sellerId}&limit=${limit}&offset=${offset}`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
-    const data = await res.json();
-    console.log(`Search seller ${sellerId} offset ${offset}:`, JSON.stringify(data).substring(0, 200));
-    const items = data.results || [];
-    allItems = allItems.concat(items.map(item => ({
-      id: item.id,
-      titulo: item.title,
-      preco: item.price,
-      moeda: item.currency_id,
-      avaliacao: item.reviews?.rating_average || null,
-      total_vendas: item.sold_quantity || 0,
-      link: item.permalink,
-      thumbnail: item.thumbnail,
-      categoria_id: item.category_id,
-    })));
-    if (items.length < limit) break;
-    offset += limit;
-    if (offset >= 200) break;
+  
+  const html = await res.text();
+  console.log(`Status: ${res.status}, HTML length: ${html.length}`);
+  
+  // Extrai dados do JSON embutido na página
+  const produtos = [];
+  
+  // Tenta extrair via script JSON na página
+  const jsonMatch = html.match(/__PRELOADED_STATE__\s*=\s*({.+?});\s*<\/script>/s) ||
+                    html.match(/window\.__INITIAL_STATE__\s*=\s*({.+?});\s*<\/script>/s);
+  
+  if (jsonMatch) {
+    try {
+      const json = JSON.parse(jsonMatch[1]);
+      console.log('JSON encontrado, keys:', Object.keys(json).join(', '));
+    } catch(e) {
+      console.log('Erro ao parsear JSON:', e.message);
+    }
   }
-  return allItems;
+
+  // Extrai preços e títulos via regex
+  const titulos = [...html.matchAll(/aria-label="([^"]{10,100})"/g)].map(m => m[1]);
+  const precos = [...html.matchAll(/(\d{1,3}(?:\.\d{3})*),(\d{2})/g)].map(m => 
+    parseFloat(m[1].replace('.','') + '.' + m[2])
+  );
+  const links = [...html.matchAll(/href="(https:\/\/www\.mercadolivre\.com\.br\/[^"]+MLB[^"]+)"/g)]
+    .map(m => m[1]).filter(l => !l.includes('classifieds'));
+
+  console.log(`Títulos: ${titulos.length}, Preços: ${precos.length}, Links: ${links.length}`);
+
+  // Monta lista de produtos
+  const total = Math.max(links.length, 1);
+  for (let i = 0; i < Math.min(total, 50); i++) {
+    produtos.push({
+      titulo: titulos[i] || `Produto ${i+1}`,
+      preco: precos[i] || null,
+      link: links[i] || null,
+    });
+  }
+
+  return { html_length: html.length, status: res.status, produtos };
 }
 
 app.get('/', (req, res) => {
-  res.json({ status: 'VigIA online', versao: '1.4' });
+  res.json({ status: 'VigIA online', versao: '1.5' });
 });
 
-app.get('/token-test', async (req, res) => {
-  try {
-    const token = await getToken();
-    res.json({ ok: true, token_preview: token.substring(0, 20) + '...' });
-  } catch (err) {
-    res.status(500).json({ erro: err.message });
-  }
-});
-
-// Busca seller_id a partir do ID de um produto (ex: MLB55254425)
-app.get('/item/:itemId', async (req, res) => {
-  try {
-    const token = await getToken();
-    const { itemId } = req.params;
-    const r = await fetch(`https://api.mercadolibre.com/items/${itemId}`, {
-      headers: { Authorization: `Bearer ${token}` }
-    });
-    const d = await r.json();
-    console.log('Item response:', JSON.stringify(d).substring(0, 300));
-    if (d.seller_id) {
-      res.json({ item_id: itemId, seller_id: d.seller_id, titulo: d.title, preco: d.price });
-    } else {
-      res.status(404).json({ erro: 'Item não encontrado', detalhe: d });
-    }
-  } catch (err) {
-    res.status(500).json({ erro: err.message });
-  }
+app.get('/token-test', (req, res) => {
+  res.json({ ok: true, modo: 'scraping' });
 });
 
 app.post('/escanear-loja', async (req, res) => {
   try {
-    const { seller_id } = req.body;
-    if (!seller_id) return res.status(400).json({ erro: 'Informe o seller_id' });
-    console.log(`Escaneando seller_id: ${seller_id}`);
-    const produtos = await getSellerProducts(seller_id);
-    res.json({ vendedor_id: seller_id, total_produtos: produtos.length, produtos });
+    const { url_loja, nickname } = req.body;
+    
+    let nick = nickname;
+    if (!nick && url_loja) {
+      const match = url_loja.match(/mercadolivre\.com\.br\/(?:loja\/)?([^\/\?#]+)/i);
+      if (match) nick = match[1];
+    }
+    
+    if (!nick) return res.status(400).json({ erro: 'Informe url_loja ou nickname' });
+    
+    console.log(`Escaneando loja: ${nick}`);
+    const resultado = await getProdutosDaLoja(nick);
+    
+    res.json({
+      nickname: nick,
+      total_produtos: resultado.produtos.length,
+      debug: { html_length: resultado.html_length, status: resultado.status },
+      produtos: resultado.produtos,
+    });
   } catch (err) {
     console.error(err.message);
     res.status(500).json({ erro: err.message });
@@ -105,4 +91,4 @@ app.post('/escanear-loja', async (req, res) => {
 });
 
 const PORT = process.env.PORT || 3000;
-app.listen(PORT, () => console.log(`VigIA v1.4 rodando na porta ${PORT}`));
+app.listen(PORT, () => console.log(`VigIA v1.5 rodando na porta ${PORT}`));
